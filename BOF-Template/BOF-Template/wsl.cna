@@ -1,0 +1,174 @@
+# WSL BOF - Windows Subsystem for Linux interaction via Cobalt Strike
+# Author: MayerDaniel
+# Description: List WSL distributions and execute commands within them
+
+# Register the help information
+beacon_command_register(
+    "wsl-list",
+    "List installed WSL distributions",
+    "Synopsis: wsl-list\n\n" .
+    "Lists all installed WSL distributions on the target system, showing:\n" .
+    "  - Distribution name\n" .
+    "  - Default distribution (marked)\n" .
+    "  - WSL version (1 or 2)\n\n" .
+    "Example:\n" .
+    "  beacon> wsl-list"
+);
+
+beacon_command_register(
+    "wsl-exec",
+    "Execute command in WSL distribution",
+    "Synopsis: wsl-exec <distro> <command>\n\n" .
+    "Executes a command in the specified WSL distribution and captures output.\n\n" .
+    "Arguments:\n" .
+    "  distro   - Name of the WSL distribution (e.g., Ubuntu, Debian)\n" .
+    "  command  - Command to execute in the Linux environment\n\n" .
+    "Examples:\n" .
+    "  beacon> wsl-exec Ubuntu whoami\n" .
+    "  beacon> wsl-exec Ubuntu uname -a\n" .
+    "  beacon> wsl-exec Debian cat /etc/passwd\n" .
+    "  beacon> wsl-exec Ubuntu ls -la /root\n\n" .
+    "Note: Use wsl-list first to see available distributions"
+);
+
+# Helper function to get the correct BOF file based on architecture
+sub get_bof_path {
+    local('$barch $bof_path');
+    $barch = barch($1);
+    
+    if ($barch eq "x64") {
+        $bof_path = script_resource("bof.x64.o");
+    } else if ($barch eq "x86") {
+        $bof_path = script_resource("bof.x86.o");
+    } else {
+        berror($1, "Unsupported architecture: $barch");
+        return $null;
+    }
+    
+    # Check if BOF file exists
+    if (!-exists $bof_path) {
+        berror($1, "BOF file not found: $bof_path");
+        berror($1, "Please ensure the BOF is in the same directory as the .cna script");
+        return $null;
+    }
+    
+    return $bof_path;
+}
+
+# WSL List command - enumerate installed distributions
+alias wsl-list {
+    local('$bof_path $handle $data $args');
+    
+    # Get the appropriate BOF file
+    $bof_path = get_bof_path($1);
+    if ($bof_path is $null) {
+        return;
+    }
+    
+    # Read BOF file
+    $handle = openf($bof_path);
+    if ($handle is $null) {
+        berror($1, "Failed to open BOF file: $bof_path");
+        return;
+    }
+    $data = readb($handle, -1);
+    closef($handle);
+    
+    # Pack arguments: just "list" as a string
+    $args = bof_pack($1, "z", "list");
+    
+    # Execute BOF
+    btask($1, "Listing WSL distributions");
+    beacon_inline_execute($1, $data, "go", $args);
+}
+
+# WSL Exec command - execute command in distribution
+alias wsl-exec {
+    local('$bof_path $handle $data $args $distro $cmd $full_cmd');
+    
+    if (size(@_) < 3) {
+        berror($1, "Usage: wsl-exec <distro> <command>");
+        berror($1, "Example: wsl-exec Ubuntu whoami");
+        return;
+    }
+    
+    # Get the appropriate BOF file
+    $bof_path = get_bof_path($1);
+    if ($bof_path is $null) {
+        return;
+    }
+    
+    # Read BOF file
+    $handle = openf($bof_path);
+    if ($handle is $null) {
+        berror($1, "Failed to open BOF file: $bof_path");
+        return;
+    }
+    $data = readb($handle, -1);
+    closef($handle);
+    
+    # Extract distro and command
+    $distro = $2;
+    
+    # Join all remaining arguments as the command
+    $cmd = "";
+    for ($i = 2; $i < size(@_); $i++) {
+        if ($i > 2) {
+            $cmd = $cmd . " ";
+        }
+        $cmd = $cmd . @_[$i];
+    }
+    
+    # Pack arguments: "exec" (string), distro (wide string), command (wide string)
+    $args = bof_pack($1, "zZZ", "exec", $distro, $cmd);
+    
+    # Execute BOF
+    btask($1, "Executing in WSL ( $+ $distro $+ ): $cmd");
+    beacon_inline_execute($1, $data, "go", $args);
+}
+
+# Popup menu integration
+popup beacon_bottom {
+    menu "WSL" {
+        item "List Distributions" {
+            local('$bid');
+            foreach $bid ($1) {
+                wsl-list($bid);
+            }
+        }
+        
+        separator();
+        
+        item "Execute Command..." {
+            local('$bid');
+            foreach $bid ($1) {
+                prompt_text("Execute WSL Command", "Ubuntu whoami", lambda({
+                    local('$cmd_parts @parts $distro $command');
+                    
+                    # Parse input: first word is distro, rest is command
+                    $cmd_parts = split(' ', $3);
+                    
+                    if (size($cmd_parts) < 2) {
+                        show_error("Please provide both distribution name and command\nExample: Ubuntu whoami");
+                        return;
+                    }
+                    
+                    $distro = $cmd_parts[0];
+                    @parts = sublist($cmd_parts, 1);
+                    $command = join(' ', @parts);
+                    
+                    # Execute the command
+                    binput($1, "wsl-exec $distro $command");
+                    wsl-exec($1, $distro, $command);
+                }, $bid => $bid));
+            }
+        }
+    }
+}
+
+# Print banner when script loads
+println("\c4[WSL BOF]\c0 Loaded successfully");
+println("  Commands:");
+println("    \c9wsl-list\c0          - List installed WSL distributions");
+println("    \c9wsl-exec\c0          - Execute command in WSL distribution");
+println("  Right-click beacon -> WSL menu for GUI access");

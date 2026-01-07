@@ -1,0 +1,10 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <BuildType Name="UnitTest" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="BOF-Template.vcxproj" Id="f0f6d338-bbc9-4eb8-849c-ff26c27005e4" />
+</Solution>
