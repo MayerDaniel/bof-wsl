@@ -87,7 +87,7 @@ extern "C" {
 	//	cli[2] = NULL;
         LXSS_STD_HANDLES stdHandles = { 0 };
 		//GUID distroGuid;
-		GUID instanceGuid;
+        GUID instanceGuid = { 0 };
         if (session) {
 			HANDLE pHandle = NULL;
 			HANDLE sHandle = NULL;
@@ -105,13 +105,16 @@ extern "C" {
 			LXSS_ERROR_INFO errorInfo = { 0 };
 
             //session->lpVtbl->GetDistributionId(session, L"Ubuntu-24.04", 0, &errorInfo, &distroGuid);
+            session->lpVtbl->GetDistributionId(session, L"Debian", 0, &errorInfo, &distroGuid);
 			//session->lpVtbl->CreateInstance(session, &distroGuid, 0, &errorInfo);
             session->lpVtbl->EnumerateDistributions(session, &distCount, &info, &errorInfo);
 
             printf("Distro Count: %d\n", distCount);
 
 			//session->lpVtbl->CreateLxProcess(session, &distroGuid, "/bin/bash", 2, cli, "/", );
-            //session->lpVtbl->CreateLxProcess(session, &distroGuid, "/bin/bash", 2, (LPCSTR*)cli, L"/", NULL, (WCHAR*)L"", 0, L"root", 0, 0, 0, &stdHandles, 0, &distroGuid2, &instanceGuid, &pHandle, &sHandle, &_stdin, &_stdout, &_stderr, &commChannel, &interop, (_LXSS_ERROR_INFO*)&error);
+            session->lpVtbl->CreateLxProcess(session, &distroGuid, "/bin/bash", 2, (LPCSTR*)cli, L"/", NULL, (WCHAR*)L"", 0, L"root", 0, 0, 0, &stdHandles, 0, &distroGuid2, &instanceGuid, &pHandle, &sHandle, &_stdin, &_stdout, &_stderr, &commChannel, &interop, (_LXSS_ERROR_INFO*)&error);
+            printf("CreateLxProcess hr: 0x%08X\n", hr);
+
         }
     }
 
