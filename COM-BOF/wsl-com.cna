@@ -1,0 +1,52 @@
+beacon_command_register(
+    "wsl",
+    "BOF to execute WSL commands",
+    "Usage: wsl <command>\n" .
+    "Example:\n" .
+    "    wsl ls -la /etc\n" .
+    "    wsl cat /etc/passwd\n" .
+    "    wsl uname -a\n\n" .
+    "Options:\n" .
+    "    <command> - (Required): The WSL command to execute"
+);
+
+# $1 - beacon id
+# $2 - command string
+alias wsl {
+    local('$handle $data $command $args $bArch');
+    
+    # Determine beacon architecture
+    $bArch = barch($1);
+    
+    # Select appropriate BOF file
+    if ($bArch eq "x64") {
+        $handle = openf(script_resource("bof.x86.o"));
+    }
+    else if ($bArch eq "x86") {
+        $handle = openf(script_resource("bof.x86.o"));
+    }
+    else {
+        berror($1, "Unsupported architecture: $bArch");
+        return;
+    }
+    
+    $data = readb($handle, -1);
+    closef($handle);
+    
+    if (strlen($data) == 0) {
+        berror($1, "Could not read BOF file");
+        return;
+    }
+    
+    # Check if command argument is provided
+    if (size(@_) < 2) {
+        berror($1, "Missing argument: command");
+        return;
+    }
+    
+    # Pack arguments (z = null-terminated string)
+    $args = bof_pack($1, "zZ", $2, $3);
+    
+    # Execute the BOF
+    beacon_inline_execute($1, $data, "go", $args);
+}

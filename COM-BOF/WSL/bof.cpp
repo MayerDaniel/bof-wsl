@@ -14,6 +14,13 @@ extern "C" {
 #include "sleepmask.h"
 #include "base/helpers.h"
 #include "wslservice_h.h"
+#include <process.h>
+    unsigned __stdcall BeginStub(void* p);
+
+    LONG PvectoredExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo);
+    // Global variables to store the command and distribution name
+    char* g_command = NULL;
+    wchar_t* g_distributionName = NULL;
 
     static const GUID CLSID_WslService = {
         0xF122531F,
@@ -70,13 +77,23 @@ extern "C" {
     DFR(KERNEL32, HeapAlloc);
     DFR(KERNEL32, HeapFree);
     DFR(KERNEL32, GetProcessHeap);
-
+    DFR(KERNEL32, AddVectoredExceptionHandler);
+    DFR(MSVCRT, _endthreadex);
+    DFR(MSVCRT, _beginthreadex);
+    DFR(KERNEL32, GetExitCodeThread);
+    DFR(KERNEL32, RemoveVectoredExceptionHandler);
     // Define statements for WS2_32 functions
 #define WSAStartup WS2_32$WSAStartup
 #define WSACleanup WS2_32$WSACleanup
 #define ioctlsocket WS2_32$ioctlsocket
 #define recv WS2_32$recv
 #define closesocket WS2_32$closesocket
+#define AddVectoredExceptionHandler KERNEL32$AddVectoredExceptionHandler
+#define _endthreadex MSVCRT$_endthreadex
+#define _beginthreadex MSVCRT$_beginthreadex
+#define WaitForSingleObject KERNEL32$WaitForSingleObject
+#define GetExitCodeThread KERNEL32$GetExitCodeThread
+#define RemoveVectoredExceptionHandler KERNEL32$RemoveVectoredExceptionHandler
 
 // Define statements for OLE32 functions
 #define CoInitializeEx OLE32$CoInitializeEx
@@ -87,7 +104,6 @@ extern "C" {
 
 // Define statements for KERNEL32 functions
 #define Sleep KERNEL32$Sleep
-#define WaitForSingleObject KERNEL32$WaitForSingleObject
 #define GetExitCodeProcess KERNEL32$GetExitCodeProcess
 #define CloseHandle KERNEL32$CloseHandle
 #define GetLastError KERNEL32$GetLastError
@@ -104,7 +120,7 @@ extern "C" {
 #define FIONBIO 0x8004667e
 #define BUFFER_SIZE 4096
 
-    void initializeCom(void) {
+    void initializeCom() {
         HRESULT hr;
         ILxssUserSession* session = NULL;
         WSADATA wsaData;
@@ -162,7 +178,7 @@ extern "C" {
             // Get distribution ID
             hr = session->lpVtbl->GetDistributionId(
                 session,
-                L"Debian",
+                g_distributionName,
                 0,
                 &errorInfo,
                 &distroGuid
@@ -192,7 +208,7 @@ extern "C" {
             const char* commandLine[4];
             commandLine[0] = "/bin/bash";
             commandLine[1] = "-c";
-            commandLine[2] = "echo 'Hello from WSL!' && whoami && pwd && uname -a";
+            commandLine[2] = g_command;
             commandLine[3] = NULL;
 
             // Initialize standard handles
@@ -339,26 +355,64 @@ extern "C" {
         WSACleanup();
     }
 
-    void go(char* args, int len) {
+void go(char* args, int len) {
+
+    datap parser = { 0 };
+    DWORD exitcode = 0;
+    HANDLE thread = NULL;
+    PVOID eHandler = NULL;
+
+    // Parse the arguments
+    BeaconDataParse(&parser, args, len);
+    g_command = (char*)BeaconDataExtract(&parser, NULL);
+    g_distributionName = (wchar_t*)BeaconDataExtract(&parser, NULL);
+
+    if (g_command == NULL) {
+        BeaconPrintf(CALLBACK_ERROR, "No command provided\n");
+        return;
+    }
+
+    if (g_distributionName == NULL) {
+        BeaconPrintf(CALLBACK_ERROR, "No distribution name provided\n");
+        return;
+    }
+
+    //Setup Exception handling
+    //RPC uses exceptions to raise errors to the client program. Normally, this is handled using MSVC's extensions for
+    //SEH(RpcTryExcept, RpcExcept & RpcEndExcept). An object file loaded with COFFLoader is not set up so that SEH works.
+    //To prevent beacon from crashing, we can setup an exception handler to catch exceptions that are unhandled. We will use
+    //A sacrificial thread to run our main code, handle any RPC exceptions, and return the error code back to us upon failure.
+    //The main thread will be blocked while the sacrificial thread is running.
+    eHandler = AddVectoredExceptionHandler(0, (PVECTORED_EXCEPTION_HANDLER)PvectoredExceptionHandler);
+    thread = (HANDLE)_beginthreadex(NULL, 0, BeginStub, NULL, 0, NULL);
+    WaitForSingleObject(thread, INFINITE);
+    GetExitCodeThread(thread, &exitcode);
+    if (exitcode != 0)
+    {
+        BeaconPrintf(CALLBACK_ERROR, "An exception occured while running: 0x%x\n", exitcode);
+    }
+    if (thread) { CloseHandle(thread); }
+    //if (eHandler) { RemoveVectoredExceptionHandler(eHandler); }
+}
+    unsigned __stdcall BeginStub (void* p) {
+        // Grab parameter values from beacon pars
         BeaconPrintf(CALLBACK_OUTPUT, "Starting WSL BOF...");
         // Initialize COM and execute WSL command
         initializeCom();
-        // Original system directory test
-        char path[MAX_PATH + 1];
-        UINT bytesCopied = GetSystemDirectoryA(path, sizeof(path));
-        if (bytesCopied == 0) {
-            BeaconPrintf(CALLBACK_ERROR, "GetSystemDirectoryA Error: %i", GetLastError());
-        }
-        else if (bytesCopied <= sizeof(path)) {
-            BeaconPrintf(CALLBACK_OUTPUT, "System Directory: %s", path);
-        }
+        return 0;
+    }
+
+    LONG PvectoredExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo)
+    {
+        _endthreadex(ExceptionInfo->ExceptionRecord->ExceptionCode);
+        return EXCEPTION_CONTINUE_EXECUTION;
     }
 }
 // Define a main function for the debug build
 #if defined(_DEBUG) && !defined(_GTEST)
 int main(int argc, char* argv[]) {
     // Run BOF's entrypoint
-    bof::runMocked<>(go);
+    bof::runMocked<>(go, "uname -a", L"Debian");
     return 0;
 }
 // Define unit tests
