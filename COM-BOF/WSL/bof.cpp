@@ -1,46 +1,40 @@
 #include <Windows.h>
 #include "base\helpers.h"
 #define WIN32_LEAN_AND_MEAN  // Exclude rarely-used stuff from Windows headers
-
 #ifdef _DEBUG
 #undef DECLSPEC_IMPORT
 #define DECLSPEC_IMPORT
 #include "base\mock.h"
+#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "ole32.lib")
 #endif
-
 extern "C" {
 #define CINTERFACE
 #include "beacon.h"
 #include "sleepmask.h"
 #include "base/helpers.h"
 #include "wslservice_h.h"
-#pragma comment(lib, "ws2_32.lib")
 
-#pragma comment(lib, "ole32.lib")
     static const GUID CLSID_WslService = {
-0xF122531F,
-0x326B,
-0x4514,
-{ 0x85, 0xAE, 0xDC, 0x99, 0xD3, 0x1D, 0x82, 0x56 } };
-
+        0xF122531F,
+        0x326B,
+        0x4514,
+        { 0x85, 0xAE, 0xDC, 0x99, 0xD3, 0x1D, 0x82, 0x56 } };
     static const GUID IID_IWSLService = {
     0x50047071,
     0x122C,
     0x4CAD,
     { 0x9C, 0x93, 0x94, 0x72, 0x0E, 0xB7, 0x7B, 0x06 } };
-
     static const GUID IID_ILxssUserSession = {
     0x536A6BCF,
     0xFE04,
     0x41D9,
     { 0xB9, 0x78, 0xDC, 0xAC, 0xA9, 0xA9, 0xB5, 0xB9 } };
-
     static const GUID CLSID_LxssUserSession1 = {
     0x4F476546,
     0xB412,
     0x4579,
     { 0xB6, 0x4C, 0x12, 0x3D, 0xF3, 0x31, 0xE3, 0xD6 } };
-
     static const GUID IID_ILxssUserSession2 = {
     0x38541BDC,
     0xF54F,
@@ -51,24 +45,73 @@ extern "C" {
     0x0671,
     0x405C,
     { 0x95, 0xF1, 0xE0, 0x61, 0x2C, 0xB4, 0xCE, 0x7E } };
-    // Correct GUIDs from the header file
-        // Forward declare WSAStartup/WSACleanup without including winsock2.h
 
-
-    // Declare WSAStartup and WSACleanup
+    // DFR declarations for WS2_32.dll functions
     DFR(WS2_32, WSAStartup);
     DFR(WS2_32, WSACleanup);
+    DFR(WS2_32, ioctlsocket);
+    DFR(WS2_32, recv);
+    DFR(WS2_32, closesocket);
+
+    // DFR declarations for OLE32.dll functions
+    DFR(OLE32, CoInitializeEx);
+    DFR(OLE32, CoInitializeSecurity);
+    DFR(OLE32, CoCreateInstance);
+    DFR(OLE32, CoUninitialize);
+    DFR(OLE32, CoTaskMemFree);
+
+    // DFR declarations for KERNEL32.dll functions
+    DFR(KERNEL32, Sleep);
+    DFR(KERNEL32, WaitForSingleObject);
+    DFR(KERNEL32, GetExitCodeProcess);
+    DFR(KERNEL32, CloseHandle);
+    DFR(KERNEL32, GetLastError);
+    DFR(KERNEL32, GetSystemDirectoryA);
+    DFR(KERNEL32, HeapAlloc);
+    DFR(KERNEL32, HeapFree);
+    DFR(KERNEL32, GetProcessHeap);
+
+    // Define statements for WS2_32 functions
+#define WSAStartup WS2_32$WSAStartup
+#define WSACleanup WS2_32$WSACleanup
+#define ioctlsocket WS2_32$ioctlsocket
+#define recv WS2_32$recv
+#define closesocket WS2_32$closesocket
+
+// Define statements for OLE32 functions
+#define CoInitializeEx OLE32$CoInitializeEx
+#define CoInitializeSecurity OLE32$CoInitializeSecurity
+#define CoCreateInstance OLE32$CoCreateInstance
+#define CoUninitialize OLE32$CoUninitialize
+#define CoTaskMemFree OLE32$CoTaskMemFree
+
+// Define statements for KERNEL32 functions
+#define Sleep KERNEL32$Sleep
+#define WaitForSingleObject KERNEL32$WaitForSingleObject
+#define GetExitCodeProcess KERNEL32$GetExitCodeProcess
+#define CloseHandle KERNEL32$CloseHandle
+#define GetLastError KERNEL32$GetLastError
+#define GetSystemDirectoryA KERNEL32$GetSystemDirectoryA
+#define HeapAlloc KERNEL32$HeapAlloc
+#define HeapFree KERNEL32$HeapFree
+#define GetProcessHeap KERNEL32$GetProcessHeap
+
+// Memory allocation macros
+#define intFree(addr) HeapFree(GetProcessHeap(), 0, addr)
+#define intAlloc(size) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size)
 
 #define MAKEWORD(a, b) ((WORD)(((BYTE)(((DWORD_PTR)(a)) & 0xff)) | ((WORD)((BYTE)(((DWORD_PTR)(b)) & 0xff))) << 8))
-
+#define FIONBIO 0x8004667e
+#define BUFFER_SIZE 4096
 
     void initializeCom(void) {
         HRESULT hr;
         ILxssUserSession* session = NULL;
         WSADATA wsaData;
+        char* buffer = NULL;
 
         // Initialize Winsock
-        int wsaResult = WS2_32$WSAStartup(MAKEWORD(2, 2), &wsaData);
+        int wsaResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
         if (wsaResult != 0) {
             BeaconPrintf(CALLBACK_ERROR, "WSAStartup failed: %d", wsaResult);
             return;
@@ -76,53 +119,50 @@ extern "C" {
         BeaconPrintf(CALLBACK_OUTPUT, "WSAStartup successful");
 
         // Initialize COM
-        DFR_LOCAL(OLE32, CoInitializeEx);
         hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
         if (FAILED(hr)) {
             BeaconPrintf(CALLBACK_ERROR, "CoInitializeEx failed: 0x%08X", hr);
+            WSACleanup();
             return;
         }
 
         // Initialize COM security
-        DFR_LOCAL(OLE32, CoInitializeSecurity);
         hr = CoInitializeSecurity(
             NULL,
             -1,
             NULL,
             NULL,
             RPC_C_AUTHN_LEVEL_DEFAULT,
-            RPC_C_IMP_LEVEL_IMPERSONATE,  // Changed from SecurityDelegation
+            RPC_C_IMP_LEVEL_IMPERSONATE,
             NULL,
             EOAC_STATIC_CLOAKING,
             NULL
         );
-        // Note: CoInitializeSecurity can return RPC_E_TOO_LATE if already called, which is okay
+
         if (FAILED(hr) && hr != RPC_E_TOO_LATE) {
             BeaconPrintf(CALLBACK_ERROR, "CoInitializeSecurity failed: 0x%08X", hr);
         }
 
         // Create WSL session instance
-        hr = CoCreateInstance(CLSID_LxssUserSession2, nullptr, CLSCTX_LOCAL_SERVER, IID_ILxssUserSession2, (LPVOID*)&session);
-
-
+        hr = CoCreateInstance(CLSID_LxssUserSession2, NULL, CLSCTX_LOCAL_SERVER, IID_ILxssUserSession2, (LPVOID*)&session);
         if (FAILED(hr)) {
             BeaconPrintf(CALLBACK_ERROR, "CoCreateInstance failed: 0x%08X", hr);
             BeaconPrintf(CALLBACK_ERROR, "Make sure WSL is installed and running");
             CoUninitialize();
+            WSACleanup();
             return;
         }
 
         BeaconPrintf(CALLBACK_OUTPUT, "WSL COM session created successfully");
 
         if (session) {
-            // Initialize error info structure
             LXSS_ERROR_INFO errorInfo = { 0 };
             GUID distroGuid = { 0 };
 
             // Get distribution ID
             hr = session->lpVtbl->GetDistributionId(
                 session,
-                L"Debian",  // Change to your distro name
+                L"Debian",
                 0,
                 &errorInfo,
                 &distroGuid
@@ -139,6 +179,7 @@ extern "C" {
                 }
                 session->lpVtbl->Release(session);
                 CoUninitialize();
+                WSACleanup();
                 return;
             }
 
@@ -148,10 +189,11 @@ extern "C" {
                 distroGuid.Data4[3], distroGuid.Data4[4], distroGuid.Data4[5],
                 distroGuid.Data4[6], distroGuid.Data4[7]);
 
-            const char* commandLine[3];
-            commandLine[0] = "-c";
-            commandLine[1] = "cat";
-            commandLine[2] = NULL;  // NULL terminator is important!
+            const char* commandLine[4];
+            commandLine[0] = "/bin/bash";
+            commandLine[1] = "-c";
+            commandLine[2] = "echo 'Hello from WSL!' && whoami && pwd && uname -a";
+            commandLine[3] = NULL;
 
             // Initialize standard handles
             LXSS_STD_HANDLES stdHandles = { 0 };
@@ -159,6 +201,7 @@ extern "C" {
             stdHandles.StdIn.HandleType = LxssHandleConsole;
             stdHandles.StdOut.Handle = 0;
             stdHandles.StdOut.HandleType = LxssHandleConsole;
+            stdHandles.StdErr.Handle = 0;
             stdHandles.StdErr.Handle = 0;
             stdHandles.StdErr.HandleType = LxssHandleConsole;
 
@@ -177,30 +220,30 @@ extern "C" {
             // Create the Linux process
             hr = session->lpVtbl->CreateLxProcess(
                 session,
-                &distroGuid,              // DistroGuid
-                "/home/defaultuser/sleep.sh",              // Filename
-                0,                        // CommandLineCount
-                NULL,     // CommandLine
-                NULL,                  // CurrentWorkingDirectory (use L prefix for wide string)
-                NULL,                     // NtPath
-                NULL,                     // NtEnvironment
-                0,                        // NtEnvironmentLength
-                NULL,                     // Username (NULL = default user)
-                80,                       // Columns
-                25,                       // Rows
-                LXSS_HANDLE_USE_CONSOLE,  // ConsoleHandle
-                &stdHandles,              // StdHandles
-                0,                        // Flags
-                &distributionId,          // DistributionId (output)
-                &instanceId,              // InstanceId (output)
-                &processHandle,           // ProcessHandle (output)
-                &serverHandle,            // ServerHandle (output)
-                &stdinHandle,             // StandardIn (output)
-                &stdoutHandle,            // StandardOut (output)
-                &stderrHandle,            // StandardErr (output)
-                &commChannel,             // CommunicationChannel (output)
-                &interopSocket,           // InteropSocket (output)
-                &createError              // Error (output)
+                &distroGuid,
+                "/bin/bash",
+                3,
+                commandLine,
+                NULL,
+                NULL,
+                NULL,
+                0,
+                NULL,
+                80,
+                25,
+                LXSS_HANDLE_USE_CONSOLE,
+                &stdHandles,
+                0,
+                &distributionId,
+                &instanceId,
+                &processHandle,
+                &serverHandle,
+                &stdinHandle,
+                &stdoutHandle,
+                &stderrHandle,
+                &commChannel,
+                &interopSocket,
+                &createError
             );
 
             if (FAILED(hr)) {
@@ -215,17 +258,24 @@ extern "C" {
                 }
             }
             else {
-                // **KEY CHANGE**: Read from sockets instead of pipes
+                BeaconPrintf(CALLBACK_OUTPUT, "WSL process created successfully!");
+
+                // Allocate buffer on heap
+                buffer = (char*)intAlloc(BUFFER_SIZE);
+                if (!buffer) {
+                    BeaconPrintf(CALLBACK_ERROR, "Failed to allocate buffer");
+                    goto cleanup;
+                }
+
+                // Read from sockets
                 if (stdoutHandle) {
                     // Set socket to non-blocking
                     u_long mode = 1;
                     ioctlsocket((SOCKET)(ULONG_PTR)stdoutHandle, FIONBIO, &mode);
 
                     // Give process time to produce output
-                    DFR_LOCAL(KERNEL32, Sleep);
                     Sleep(2000);
 
-                    char buffer[4096];
                     int bytesRead = 0;
                     int totalBytes = 0;
 
@@ -234,7 +284,7 @@ extern "C" {
                     // Read all available data from socket
                     while ((bytesRead = recv((SOCKET)(ULONG_PTR)stdoutHandle,
                         buffer,
-                        sizeof(buffer) - 1,
+                        BUFFER_SIZE - 1,
                         0)) > 0) {
                         buffer[bytesRead] = '\0';
                         totalBytes += bytesRead;
@@ -249,11 +299,9 @@ extern "C" {
                     }
                 }
 
-                BeaconPrintf(CALLBACK_OUTPUT, "WSL process created successfully!");
-
-                // Wait for process completion (optional - may want to make this async)
+                // Wait for process completion
                 if (processHandle) {
-                    DWORD waitResult = WaitForSingleObject(processHandle, 10000); // 10 second timeout
+                    DWORD waitResult = WaitForSingleObject(processHandle, 10000);
                     if (waitResult == WAIT_OBJECT_0) {
                         DWORD exitCode = 0;
                         if (GetExitCodeProcess(processHandle, &exitCode)) {
@@ -263,10 +311,17 @@ extern "C" {
                     else if (waitResult == WAIT_TIMEOUT) {
                         BeaconPrintf(CALLBACK_OUTPUT, "Process still running after timeout");
                     }
-                    CloseHandle(processHandle);
+                }
+
+            cleanup:
+                // Free buffer
+                if (buffer) {
+                    intFree(buffer);
+                    buffer = NULL;
                 }
 
                 // Clean up handles
+                if (processHandle) CloseHandle(processHandle);
                 if (serverHandle) CloseHandle(serverHandle);
                 if (stdinHandle) closesocket(stdinHandle);
                 if (stdoutHandle) closesocket(stdoutHandle);
@@ -281,24 +336,16 @@ extern "C" {
 
         // Uninitialize COM
         CoUninitialize();
+        WSACleanup();
     }
-
-    // Define the Dynamic Function Resolution declaration for the GetLastError function
-    DFR(KERNEL32, GetLastError);
-    // Map GetLastError to KERNEL32$GetLastError
-#define GetLastError KERNEL32$GetLastError
 
     void go(char* args, int len) {
         BeaconPrintf(CALLBACK_OUTPUT, "Starting WSL BOF...");
-
         // Initialize COM and execute WSL command
         initializeCom();
-
         // Original system directory test
-        DFR_LOCAL(KERNEL32, GetSystemDirectoryA);
         char path[MAX_PATH + 1];
         UINT bytesCopied = GetSystemDirectoryA(path, sizeof(path));
-
         if (bytesCopied == 0) {
             BeaconPrintf(CALLBACK_ERROR, "GetSystemDirectoryA Error: %i", GetLastError());
         }
@@ -307,26 +354,21 @@ extern "C" {
         }
     }
 }
-
 // Define a main function for the debug build
 #if defined(_DEBUG) && !defined(_GTEST)
-
 int main(int argc, char* argv[]) {
     // Run BOF's entrypoint
     bof::runMocked<>(go);
     return 0;
 }
-
 // Define unit tests
 #elif defined(_GTEST)
 #include <gtest\gtest.h>
-
 TEST(BofTest, Test1) {
     std::vector<bof::output::OutputEntry> got = bof::runMocked<>(go);
     std::vector<bof::output::OutputEntry> expected = {
         {CALLBACK_OUTPUT, "System Directory: C:\\Windows\\system32"}
     };
-
     ASSERT_EQ(expected.size(), got.size());
     ASSERT_STRCASEEQ(expected[0].output.c_str(), got[0].output.c_str());
 }
