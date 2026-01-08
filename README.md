@@ -67,4 +67,4 @@ Linux DESKTOP-K9LS5KS 5.15.153.1-microsoft-standard-WSL2 #1 SMP Fri Mar 29 23:14
 ```
 
 
-Created by [@xpn](https://github.com/xpn), [@antroguy](https://github.com/antroguy), amd me!
+Created by [@xpn](https://github.com/xpn), [@antroguy](https://github.com/antroguy), amd me for the SpecterOps 2026 24hr hackathon.
