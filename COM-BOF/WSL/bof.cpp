@@ -167,18 +167,18 @@ extern "C" {
             GUID instanceId = { 0 };
             HANDLE processHandle = NULL;
             HANDLE serverHandle = NULL;
-            HANDLE stdinHandle = NULL;
-            HANDLE stdoutHandle = NULL;
-            HANDLE stderrHandle = NULL;
-            HANDLE commChannel = NULL;
-            HANDLE interopSocket = NULL;
+            SOCKET stdinHandle = NULL;
+            SOCKET stdoutHandle = NULL;
+            SOCKET stderrHandle = NULL;
+            SOCKET commChannel = NULL;
+            SOCKET interopSocket = NULL;
             LXSS_ERROR_INFO createError = { 0 };
 
             // Create the Linux process
             hr = session->lpVtbl->CreateLxProcess(
                 session,
                 &distroGuid,              // DistroGuid
-                "/home/defaultuser/sleep2.sh",              // Filename
+                "/home/defaultuser/sleep.sh",              // Filename
                 0,                        // CommandLineCount
                 NULL,     // CommandLine
                 NULL,                  // CurrentWorkingDirectory (use L prefix for wide string)
@@ -215,6 +215,40 @@ extern "C" {
                 }
             }
             else {
+                // **KEY CHANGE**: Read from sockets instead of pipes
+                if (stdoutHandle) {
+                    // Set socket to non-blocking
+                    u_long mode = 1;
+                    ioctlsocket((SOCKET)(ULONG_PTR)stdoutHandle, FIONBIO, &mode);
+
+                    // Give process time to produce output
+                    DFR_LOCAL(KERNEL32, Sleep);
+                    Sleep(2000);
+
+                    char buffer[4096];
+                    int bytesRead = 0;
+                    int totalBytes = 0;
+
+                    BeaconPrintf(CALLBACK_OUTPUT, "[STDOUT]:");
+
+                    // Read all available data from socket
+                    while ((bytesRead = recv((SOCKET)(ULONG_PTR)stdoutHandle,
+                        buffer,
+                        sizeof(buffer) - 1,
+                        0)) > 0) {
+                        buffer[bytesRead] = '\0';
+                        totalBytes += bytesRead;
+                        BeaconPrintf(CALLBACK_OUTPUT, "%s", buffer);
+                    }
+
+                    if (totalBytes == 0) {
+                        BeaconPrintf(CALLBACK_OUTPUT, "(no output)");
+                    }
+                    else {
+                        BeaconPrintf(CALLBACK_OUTPUT, "\nTotal bytes read: %d", totalBytes);
+                    }
+                }
+
                 BeaconPrintf(CALLBACK_OUTPUT, "WSL process created successfully!");
 
                 // Wait for process completion (optional - may want to make this async)
@@ -234,11 +268,11 @@ extern "C" {
 
                 // Clean up handles
                 if (serverHandle) CloseHandle(serverHandle);
-                if (stdinHandle) CloseHandle(stdinHandle);
-                if (stdoutHandle) CloseHandle(stdoutHandle);
-                if (stderrHandle) CloseHandle(stderrHandle);
-                if (commChannel) CloseHandle(commChannel);
-                if (interopSocket) CloseHandle(interopSocket);
+                if (stdinHandle) closesocket(stdinHandle);
+                if (stdoutHandle) closesocket(stdoutHandle);
+                if (stderrHandle) closesocket(stderrHandle);
+                if (commChannel) closesocket(commChannel);
+                if (interopSocket) closesocket(interopSocket);
             }
 
             // Release the session

@@ -545,11 +545,11 @@ EXTERN_C const IID IID_ILxssUserSession;
             /* [out] */ GUID *InstanceId,
             /* [system_handle][out] */ HANDLE *ProcessHandle,
             /* [system_handle][out] */ HANDLE *ServerHandle,
-            /* [system_handle][out] */ HANDLE *StandardIn,
-            /* [system_handle][out] */ HANDLE *StandardOut,
-            /* [system_handle][out] */ HANDLE *StandardErr,
-            /* [system_handle][out] */ HANDLE *CommunicationChannel,
-            /* [system_handle][out] */ HANDLE *InteropSocket,
+            /* [system_handle][out] */ SOCKET *StandardIn,
+            /* [system_handle][out] */ SOCKET *StandardOut,
+            /* [system_handle][out] */ SOCKET *StandardErr,
+            /* [system_handle][out] */ SOCKET *CommunicationChannel,
+            /* [system_handle][out] */ SOCKET *InteropSocket,
             /* [out][in] */ LXSS_ERROR_INFO *Error);
         
         DECLSPEC_XFGVIRT(ILxssUserSession, SetVersion)
