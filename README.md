@@ -65,3 +65,6 @@ Note: Use wsl-list first to see available distributions
 [01/08 22:06:02] [+] received output:
 Linux DESKTOP-K9LS5KS 5.15.153.1-microsoft-standard-WSL2 #1 SMP Fri Mar 29 23:14:13 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux
 ```
+
+
+Created by [@xpn](https://github.com/xpn), [@antroguy](https://github.com/antroguy), amd me!
