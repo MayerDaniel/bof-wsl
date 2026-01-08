@@ -12,7 +12,9 @@ This is using the command [WslLaunch](https://learn.microsoft.com/en-us/windows/
 
 _Why not just use COM, you ask? _
 
-There is a proof of concept in the `com` branch of this repo, but sadly the COM interface changes between versions of WSL (not just 1&2, but subversions). Take a look at a similar project that tried to keep track of these changes named [wslbridge2](https://github.com/Biswa96/wslbridge2/blob/a7162d852ff438d2d5a8dd8dae61795addb3d980/src/GetVmId.cpp#L49) - it needs to keep track of undocumented bounaries of the changes and the function signatures for each of them - and there have been at least 2 more breaking changes since that project stopped tracking. Someone could use (oleviewdotnet)[https://github.com/tyranid/oleviewdotnet] to generate IDLs for each version and create a master header file for all the different interfaces and checks to map your target machine's WSL instance to the right interface definition, but we haven't done that. Now you can see why the windows DLL just forks out and calls a client that should match the interface of the server! 
+There is a proof of concept in the `com` branch of this repo, but sadly the COM interface changes between versions of WSL (not just 1&2, but subversions). Take a look at a similar project that tried to keep track of these changes named [wslbridge2](https://github.com/Biswa96/wslbridge2/blob/a7162d852ff438d2d5a8dd8dae61795addb3d980/src/GetVmId.cpp#L49) - it needs to keep track of undocumented bounaries of the changes and the function signatures for each of them - and there have been at least 2 more breaking changes since that project stopped tracking. 
+
+Someone could use [oleviewdotnet](https://github.com/tyranid/oleviewdotnet) to generate IDLs for each version and create a master header file for all the different interfaces and checks to map your target machine's WSL instance to the right interface definition, but we haven't done that. Now you can see why the windows DLL just forks out and calls a client that should match the interface of the server! 
 
 ## Usage
 
